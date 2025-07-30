@@ -138,14 +138,14 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
         # Different styling for chapter headings
         if node.is_chapter_heading:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#1976d2", fontcolor=white, penwidth=3, fontsize=14, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#2c3e50", fontcolor=white, penwidth=3, fontsize=14, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#1976d2", fontcolor=white, penwidth=3, fontsize=14];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#2c3e50", fontcolor=white, penwidth=3, fontsize=14];')
         else:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#4a148c", fontcolor=white, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#34495e", fontcolor=white, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#4a148c", fontcolor=white];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#34495e", fontcolor=white];')
     
     dot_lines.append('')
     
@@ -164,11 +164,8 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
 def display_interactive_flowchart(nodes: Dict[str, EventNode]):
     """Renders a Graphviz flowchart with clickable nodes using st.graphviz_chart()."""
     
-    st.subheader("📊 Event Timeline")
-    st.info("💡 Click any node in the diagram to open its URL in a new tab.")
-    
     if not nodes:
-        st.warning("No events found for this chapter to create a flowchart.")
+        st.warning("No events found for this chapter.")
         return
         
     try:
@@ -177,20 +174,15 @@ def display_interactive_flowchart(nodes: Dict[str, EventNode]):
         
         # Display using Streamlit's native graphviz_chart
         st.graphviz_chart(dot_source, use_container_width=True)
-        
-        st.markdown("---")
-        st.info("🎯 **Legend:** Blue nodes are chapter headings, purple nodes are regular events. All nodes with URLs are clickable and open in new tabs.")
 
     except Exception as e:
-        st.error(f"An error occurred while rendering the flowchart: {e}")
-        st.warning("Falling back to a simple list display.")
+        st.error(f"Error rendering timeline: {e}")
         
         for node in nodes.values():
-            icon = "🏛️" if node.is_chapter_heading else "📅"
             if node.url:
-                st.markdown(f"*   {icon} [{node.title}]({node.url})")
+                st.markdown(f"• [{node.title}]({node.url})")
             else:
-                st.markdown(f"*   {icon} {node.title} (No URL)")
+                st.markdown(f"• {node.title}")
 
 
 def display_entry(entry):
@@ -249,94 +241,25 @@ def display_entry(entry):
 
 def main():
     st.set_page_config(
-        page_title="Timeline from Notion",
+        page_title="Timeline",
         page_icon="📅",
         layout="wide"
     )
     
-    st.title("📅 Timeline from Notion")
-    st.write("Retrieving events from Notion database, filtered by Chapter = 'Prologue'")
-    
     database_id = os.getenv("TIMELINE_DATABASE_ID")
     
     if not database_id:
-        st.error("TIMELINE_DATABASE_ID not found in environment variables. Please check your .env file.")
-        st.info("Make sure to set both NOTION_KEY and TIMELINE_DATABASE_ID in your .env file")
+        st.error("TIMELINE_DATABASE_ID not found in environment variables.")
         st.stop()
     
-    st.sidebar.header("Configuration")
-    st.sidebar.write(f"**Database ID:** `{database_id[:10]}...`")
-    st.sidebar.write("**Chapter Filter:** Prologue")
-    
-    with st.spinner("Connecting to Notion..."):
-        notion_client = get_notion_client()
-    
-    with st.expander("🔍 Database Schema (for debugging)", expanded=False):
-        schema = get_database_schema(notion_client, database_id)
-        if schema:
-            st.write("**Available Properties:**")
-            for prop_name, prop_info in schema.items():
-                prop_type = prop_info.get("type", "unknown")
-                st.write(f"- **{prop_name}:** `{prop_type}`")
-                
-                if prop_type == "select" and "select" in prop_info:
-                    options = prop_info["select"].get("options", [])
-                    if options:
-                        option_names = [opt.get("name", "") for opt in options]
-                        st.write(f"  - Options: {', '.join(option_names)}")
-        else:
-            st.write("Could not retrieve schema")
-    
-    with st.spinner("Retrieving database entries..."):
-        entries = get_database_entries(notion_client, database_id, "Prologue")
+    notion_client = get_notion_client()
+    entries = get_database_entries(notion_client, database_id, "Prologue")
     
     if entries:
-        st.success(f"Found {len(entries)} entries with Chapter = 'Prologue'")
-        
-        with st.spinner("Building flowchart..."):
-            nodes = parse_entries_to_nodes(entries)
-        
+        nodes = parse_entries_to_nodes(entries)
         display_interactive_flowchart(nodes)
-        
-        with st.expander("📋 Detailed Entry Information", expanded=False):
-            st.write("Raw entry data for debugging:")
-            for i, entry in enumerate(entries):
-                display_entry(entry)
     else:
-        st.warning("No entries found with Chapter = 'Prologue'")
-        st.info("Let's try to debug this:")
-        
-        with st.spinner("Checking what entries exist in the database..."):
-            try:
-                response = notion_client.databases.query(
-                    database_id=database_id,
-                    page_size=5
-                )
-                all_entries = response.get("results", [])
-                
-                if all_entries:
-                    st.write(f"Found {len(all_entries)} entries in database (showing first 5):")
-                    
-                    chapter_values = set()
-                    for entry in all_entries:
-                        chapter_prop = entry.get("properties", {}).get("Chapter", {})
-                        if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
-                            chapter_value = chapter_prop["select"].get("name", "")
-                            if chapter_value:
-                                chapter_values.add(chapter_value)
-                    
-                    if chapter_values:
-                        st.write(f"**Chapter values found:** {', '.join(sorted(chapter_values))}")
-                    else:
-                        st.write("No Chapter values found in sample entries")
-                        
-                    with st.expander("Sample entry structure"):
-                        st.json(all_entries[0], expanded=False)
-                else:
-                    st.write("No entries found in database at all")
-                    
-            except Exception as e:
-                st.error(f"Error checking database contents: {str(e)}")
+        st.warning("No events found with Chapter = 'Prologue'")
 
 if __name__ == "__main__":
     main()
