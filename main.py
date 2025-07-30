@@ -257,12 +257,12 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
     dot_lines = [
         f'digraph {graph_name} {{',
         '    rankdir=TB;',
-        '    node [shape=box, style=filled, fontname="Helvetica", fontsize=14];',
-        '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.8];',
+        '    node [shape=box, style=filled, fontname="Helvetica", fontsize=11];',
+        '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
         f'    edge [color="{edge_color}"];',
         f'    label="{chapter_name}";',
         f'    labelloc="t";',
-        f'    labelfontsize=18;',
+        f'    labelfontsize=14;',
         ''
     ]
     
@@ -284,9 +284,9 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
         # Different styling for chapter headings
         if node.is_chapter_heading:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=16, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=13, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=16];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=13];')
         else:
             if node.url:
                 dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, href="{node.url}", target="_blank"];')
