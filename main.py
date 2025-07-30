@@ -31,10 +31,11 @@ def get_database_schema(notion_client, database_id):
         st.error(f"Error retrieving database schema: {str(e)}")
         return {}
 
-def get_all_chapters(notion_client, database_id):
-    """Get all unique chapter values from the database"""
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_all_database_entries(_notion_client, database_id):
+    """Get ALL entries from the database once, with caching"""
     try:
-        # Query all entries to get chapter values (need to handle pagination)
+        # Query all entries with pagination
         all_entries = []
         has_more = True
         next_cursor = None
@@ -44,52 +45,47 @@ def get_all_chapters(notion_client, database_id):
             if next_cursor:
                 query_params["start_cursor"] = next_cursor
                 
-            response = notion_client.databases.query(**query_params)
+            response = _notion_client.databases.query(**query_params)
             all_entries.extend(response["results"])
             
             has_more = response.get("has_more", False)
             next_cursor = response.get("next_cursor")
         
-        chapters = set()
-        for entry in all_entries:
-            chapter_prop = entry.get("properties", {}).get("Chapter", {})
-            if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
-                chapter_value = chapter_prop["select"].get("name", "")
-                if chapter_value:
-                    chapters.add(chapter_value)
-        
-        # Filter to include only Prologue and chapters starting with "Chapter"
-        filtered_chapters = []
-        for chapter in sorted(chapters):
-            if chapter == "Prologue" or chapter.startswith("Chapter"):
-                filtered_chapters.append(chapter)
-        
-        return filtered_chapters
-    
-    except Exception as e:
-        st.error(f"Error retrieving chapters: {str(e)}")
-        return ["Prologue"]
-
-def get_database_entries(notion_client, database_id, chapter_filter="Prologue"):
-    """Retrieve database entries filtered by Chapter column"""
-    
-    try:
-        # Query the database with Chapter filter (using select type)
-        response = notion_client.databases.query(
-            database_id=database_id,
-            filter={
-                "property": "Chapter",
-                "select": {
-                    "equals": chapter_filter
-                }
-            }
-        )
-        
-        return response["results"]
+        return all_entries
     
     except Exception as e:
         st.error(f"Error retrieving database: {str(e)}")
         return []
+
+def get_all_chapters(all_entries):
+    """Get all unique chapter values from cached entries"""
+    chapters = set()
+    for entry in all_entries:
+        chapter_prop = entry.get("properties", {}).get("Chapter", {})
+        if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
+            chapter_value = chapter_prop["select"].get("name", "")
+            if chapter_value:
+                chapters.add(chapter_value)
+    
+    # Filter to include only Prologue and chapters starting with "Chapter"
+    filtered_chapters = []
+    for chapter in sorted(chapters):
+        if chapter == "Prologue" or chapter.startswith("Chapter"):
+            filtered_chapters.append(chapter)
+    
+    return filtered_chapters
+
+def get_database_entries(all_entries, chapter_filter="Prologue"):
+    """Filter cached entries by chapter"""
+    filtered_entries = []
+    for entry in all_entries:
+        chapter_prop = entry.get("properties", {}).get("Chapter", {})
+        if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
+            chapter_value = chapter_prop["select"].get("name", "")
+            if chapter_value == chapter_filter:
+                filtered_entries.append(entry)
+    
+    return filtered_entries
 
 class EventNode:
     """Represents an event node in the flowchart"""
@@ -150,7 +146,7 @@ def parse_entries_to_nodes(entries: List) -> Dict[str, EventNode]:
     
     return nodes
 
-def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
+def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "") -> str:
     """Generate a Graphviz DOT string for use with st.graphviz_chart()."""
     
     # Create a mapping from notion_id to simple node IDs for DOT
@@ -181,13 +177,19 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
         edge_color = "#2c3e50"         # Dark arrows
         font_color = "white"           # White text on dark backgrounds
     
-    # Build DOT string manually
+    # Build DOT string manually with unique graph name to prevent caching issues
+    # Clean the chapter name to only include valid DOT identifier characters
+    clean_chapter_name = ''.join(c if c.isalnum() else '_' for c in chapter_name) if chapter_name else "timeline"
+    graph_name = f"timeline_{clean_chapter_name}"
     dot_lines = [
-        'digraph {',
+        f'digraph {graph_name} {{',
         '    rankdir=TB;',
-        '    node [shape=box, style=filled, fontname="Helvetica", fontsize=12];',
-        '    graph [bgcolor=transparent];',
+        '    node [shape=box, style=filled, fontname="Helvetica", fontsize=14];',
+        '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.8];',
         f'    edge [color="{edge_color}"];',
+        f'    label="{chapter_name}";',
+        f'    labelloc="t";',
+        f'    labelfontsize=18;',
         ''
     ]
     
@@ -197,20 +199,26 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
         
         # Wrap long titles for better readability
         wrapped_title = textwrap.fill(node.title, width=30)
-        # Escape quotes and backslashes for DOT format
-        safe_title = wrapped_title.replace('"', '\\"').replace('\\', '\\\\')
+        # Escape quotes, backslashes, and other problematic characters for DOT format
+        safe_title = (wrapped_title
+                     .replace('\\', '\\\\')  # Escape backslashes first
+                     .replace('"', '\\"')    # Escape quotes
+                     .replace('\n', '\\n')   # Escape newlines
+                     .replace('\r', '')      # Remove carriage returns
+                     .replace('\t', ' ')     # Replace tabs with spaces
+                     )
         
         # Different styling for chapter headings
         if node.is_chapter_heading:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=14, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=16, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=14];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=16];')
         else:
             if node.url:
                 dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color};')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}];')
     
     dot_lines.append('')
     
@@ -226,7 +234,7 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
     
     return '\n'.join(dot_lines)
 
-def display_interactive_flowchart(nodes: Dict[str, EventNode]):
+def display_interactive_flowchart(nodes: Dict[str, EventNode], chapter_name: str = ""):
     """Renders a Graphviz flowchart with clickable nodes using st.graphviz_chart()."""
     
     if not nodes:
@@ -235,14 +243,15 @@ def display_interactive_flowchart(nodes: Dict[str, EventNode]):
         
     try:
         # Generate the DOT string for Graphviz
-        dot_source = create_graphviz_flowchart(nodes)
+        dot_source = create_graphviz_flowchart(nodes, chapter_name)
         
-        # Display using Streamlit's native graphviz_chart
+        # Display using Streamlit's native graphviz_chart with full width
         st.graphviz_chart(dot_source, use_container_width=True)
 
     except Exception as e:
         st.error(f"Error rendering timeline: {e}")
         
+        # Fallback to simple list
         for node in nodes.values():
             if node.url:
                 st.markdown(f"• [{node.title}]({node.url})")
@@ -319,8 +328,16 @@ def main():
     
     notion_client = get_notion_client()
     
-    # Get available chapters and create navigation
-    available_chapters = get_all_chapters(notion_client, database_id)
+    # Load ALL database entries once (cached for 5 minutes)
+    with st.spinner("Loading database..."):
+        all_entries = get_all_database_entries(notion_client, database_id)
+    
+    if not all_entries:
+        st.error("No entries found in database.")
+        st.stop()
+    
+    # Get available chapters from cached data
+    available_chapters = get_all_chapters(all_entries)
     
     if not available_chapters:
         st.error("No chapters found in database.")
@@ -338,12 +355,12 @@ def main():
         # Display current selection
         st.info(f"Currently viewing: **{selected_chapter}**")
     
-    # Get entries for selected chapter
-    entries = get_database_entries(notion_client, database_id, selected_chapter)
+    # Get entries for selected chapter from cached data
+    entries = get_database_entries(all_entries, selected_chapter)
     
     if entries:
         nodes = parse_entries_to_nodes(entries)
-        display_interactive_flowchart(nodes)
+        display_interactive_flowchart(nodes, selected_chapter)
     else:
         st.warning(f"No events found for {selected_chapter}")
 
