@@ -67,11 +67,16 @@ def get_all_chapters(all_entries):
             if chapter_value:
                 chapters.add(chapter_value)
     
-    # Filter to include only Prologue and chapters starting with "Chapter"
+    # Filter and order: Prologue first, then chapters in order
     filtered_chapters = []
-    for chapter in sorted(chapters):
-        if chapter == "Prologue" or chapter.startswith("Chapter"):
-            filtered_chapters.append(chapter)
+    
+    # Add Prologue first if it exists
+    if "Prologue" in chapters:
+        filtered_chapters.append("Prologue")
+    
+    # Add numbered chapters in sorted order
+    chapter_list = [ch for ch in sorted(chapters) if ch.startswith("Chapter")]
+    filtered_chapters.extend(chapter_list)
     
     return filtered_chapters
 
@@ -343,17 +348,16 @@ def main():
         st.error("No chapters found in database.")
         st.stop()
     
-    # Chapter navigation in sidebar
-    with st.sidebar:
-        st.header("📖 Timeline Navigation")
+    # Chapter navigation in top bar
+    col1, col2 = st.columns([3, 1])
+    with col1:
         selected_chapter = st.selectbox(
-            "Select Chapter:",
+            "📖 Select Chapter:",
             available_chapters,
-            index=0 if "Prologue" in available_chapters else 0
+            index=0  # Prologue is now first in the list
         )
-        
-        # Display current selection
-        st.info(f"Currently viewing: **{selected_chapter}**")
+    with col2:
+        st.write("")  # Empty space for alignment
     
     # Get entries for selected chapter from cached data
     entries = get_database_entries(all_entries, selected_chapter)
