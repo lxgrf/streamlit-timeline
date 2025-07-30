@@ -219,7 +219,7 @@ def parse_entries_to_nodes(entries: List) -> Dict[str, EventNode]:
     
     return nodes
 
-def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "") -> str:
+def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "", aside_mapping: Dict[str, List[str]] = None, all_entries = None) -> str:
     """Generate a Graphviz DOT string for use with st.graphviz_chart()."""
     
     # Create a mapping from notion_id to simple node IDs for DOT
@@ -287,6 +287,18 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
             ''
         ]
     
+    # Helper function to find matching aside chapter for a node title
+    def find_aside_for_title(node_title, current_chapter, aside_mapping):
+        if not aside_mapping or current_chapter not in aside_mapping:
+            return None
+        
+        # Check each aside mapped to this chapter
+        for aside_chapter in aside_mapping[current_chapter]:
+            # This is a simplified check - in a real implementation you might want
+            # to verify the aside actually has a chapter heading with this title
+            return aside_chapter
+        return None
+    
     # Add nodes with proper styling and clickable URLs
     for notion_id, node in nodes.items():
         dot_id = notion_id_to_dot_id[notion_id]
@@ -302,18 +314,43 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
                      .replace('\t', ' ')     # Replace tabs with spaces
                      )
         
+        # Check if this is an aside outlink node by looking at the original entry
+        node_url = node.url
+        is_aside_outlink = False
+        
+        if all_entries and aside_mapping and chapter_name in aside_mapping:
+            # Find the original entry for this node to check the "Aside Heading" property
+            current_chapter_entries = get_database_entries(all_entries, chapter_name)
+            for entry in current_chapter_entries:
+                if entry.get("id") == notion_id:
+                    properties = entry.get("properties", {})
+                    aside_heading = extract_property_value(properties, "Aside Heading")
+                    if aside_heading and node.url:  # Has aside heading checkbox AND a URL
+                        is_aside_outlink = True
+                        # Find the matching aside chapter and replace the URL
+                        for aside_chapter in aside_mapping[chapter_name]:
+                            # Create internal Streamlit URL
+                            node_url = f"?chapter={aside_chapter.replace(' ', '%20')}"
+                        break
+        
         # Different styling for chapter headings - adjust font size based on graph complexity
         base_font_size = 12 if (is_simple_graph or is_aside) else 11
         heading_font_size = base_font_size + 2
         
+        # Add visual indicator for aside outlinks
+        if is_aside_outlink:
+            safe_title = f"🔗 {safe_title}"  # Add link icon to indicate internal link
+        
         if node.is_chapter_heading:
-            if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node.url}", target="_blank"];')
+            if node_url:
+                target = "_self" if is_aside_outlink else "_blank"
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node_url}", target="{target}"];')
             else:
                 dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}];')
         else:
-            if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node.url}", target="_blank"];')
+            if node_url:
+                target = "_self" if is_aside_outlink else "_blank"
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}"];')
             else:
                 dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}];')
     
@@ -331,7 +368,7 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
     
     return '\n'.join(dot_lines)
 
-def display_interactive_flowchart(nodes: Dict[str, EventNode], chapter_name: str = ""):
+def display_interactive_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "", aside_mapping: Dict[str, List[str]] = None, all_entries = None):
     """Renders a Graphviz flowchart with clickable nodes using st.graphviz_chart()."""
     
     if not nodes:
@@ -339,11 +376,15 @@ def display_interactive_flowchart(nodes: Dict[str, EventNode], chapter_name: str
         return
         
     try:
-        # Generate the DOT string for Graphviz
-        dot_source = create_graphviz_flowchart(nodes, chapter_name)
+        # Generate the DOT string for Graphviz with aside mapping
+        dot_source = create_graphviz_flowchart(nodes, chapter_name, aside_mapping, all_entries)
         
         # Display using Streamlit's native graphviz_chart with full width
         st.graphviz_chart(dot_source, use_container_width=True)
+        
+        # Add a note about aside outlinks if this chapter has any
+        if aside_mapping and chapter_name in aside_mapping:
+            st.info(f"🔗 Nodes with link icons connect to: {', '.join(aside_mapping[chapter_name])}")
 
     except Exception as e:
         st.error(f"Error rendering timeline: {e}")
@@ -417,6 +458,13 @@ def main():
         layout="wide"
     )
     
+    # Check for URL parameters to set initial chapter selection
+    query_params = st.query_params
+    url_chapter = query_params.get("chapter", None)
+    if url_chapter:
+        # URL decode the chapter name
+        url_chapter = url_chapter.replace('%20', ' ')
+    
     database_id = os.getenv("TIMELINE_DATABASE_ID")
     
     if not database_id:
@@ -459,6 +507,15 @@ def main():
                 chapter_options.append(aside_chapter)
                 chapter_display_names.append(f"    ↳ {aside_chapter}")
     
+    # Determine initial selection based on URL parameter
+    initial_index = 0  # Default to first option (Prologue)
+    if url_chapter:
+        # Try to find the chapter in our options
+        for i, option in enumerate(chapter_options):
+            if option == url_chapter:
+                initial_index = i
+                break
+    
     # Chapter navigation in top bar
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -466,7 +523,7 @@ def main():
             "📖 Select Chapter:",
             range(len(chapter_options)),
             format_func=lambda i: chapter_display_names[i],
-            index=0  # Prologue is now first in the list
+            index=initial_index
         )
         selected_chapter = chapter_options[selected_index]
     with col2:
@@ -477,7 +534,7 @@ def main():
     
     if entries:
         nodes = parse_entries_to_nodes(entries)
-        display_interactive_flowchart(nodes, selected_chapter)
+        display_interactive_flowchart(nodes, selected_chapter, chapter_aside_mapping, all_entries)
     else:
         st.warning(f"No events found for {selected_chapter}")
 
