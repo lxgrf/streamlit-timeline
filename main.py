@@ -31,6 +31,45 @@ def get_database_schema(notion_client, database_id):
         st.error(f"Error retrieving database schema: {str(e)}")
         return {}
 
+def get_all_chapters(notion_client, database_id):
+    """Get all unique chapter values from the database"""
+    try:
+        # Query all entries to get chapter values (need to handle pagination)
+        all_entries = []
+        has_more = True
+        next_cursor = None
+        
+        while has_more:
+            query_params = {"database_id": database_id}
+            if next_cursor:
+                query_params["start_cursor"] = next_cursor
+                
+            response = notion_client.databases.query(**query_params)
+            all_entries.extend(response["results"])
+            
+            has_more = response.get("has_more", False)
+            next_cursor = response.get("next_cursor")
+        
+        chapters = set()
+        for entry in all_entries:
+            chapter_prop = entry.get("properties", {}).get("Chapter", {})
+            if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
+                chapter_value = chapter_prop["select"].get("name", "")
+                if chapter_value:
+                    chapters.add(chapter_value)
+        
+        # Filter to include only Prologue and chapters starting with "Chapter"
+        filtered_chapters = []
+        for chapter in sorted(chapters):
+            if chapter == "Prologue" or chapter.startswith("Chapter"):
+                filtered_chapters.append(chapter)
+        
+        return filtered_chapters
+    
+    except Exception as e:
+        st.error(f"Error retrieving chapters: {str(e)}")
+        return ["Prologue"]
+
 def get_database_entries(notion_client, database_id, chapter_filter="Prologue"):
     """Retrieve database entries filtered by Chapter column"""
     
@@ -117,12 +156,38 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
     # Create a mapping from notion_id to simple node IDs for DOT
     notion_id_to_dot_id = {node_id: f"node_{i}" for i, node_id in enumerate(nodes.keys())}
     
+    # Detect theme for adaptive colors
+    # Check if we're in dark mode by looking at Streamlit's theme
+    try:
+        # Try to detect theme from Streamlit config
+        import streamlit.config as config
+        theme = config.get_option("theme.base")
+        is_dark_mode = theme == "dark"
+    except:
+        # Fallback: assume light mode if we can't detect
+        is_dark_mode = False
+    
+    # Adaptive color scheme
+    if is_dark_mode:
+        # Dark mode: lighter colors for better contrast
+        chapter_color = "#5dade2"      # Light blue
+        event_color = "#85c1e9"        # Lighter blue
+        edge_color = "#ffffff"         # White arrows
+        font_color = "black"           # Black text on light backgrounds
+    else:
+        # Light mode: darker colors
+        chapter_color = "#2c3e50"      # Dark slate
+        event_color = "#34495e"        # Slate gray  
+        edge_color = "#2c3e50"         # Dark arrows
+        font_color = "white"           # White text on dark backgrounds
+    
     # Build DOT string manually
     dot_lines = [
         'digraph {',
         '    rankdir=TB;',
         '    node [shape=box, style=filled, fontname="Helvetica", fontsize=12];',
         '    graph [bgcolor=transparent];',
+        f'    edge [color="{edge_color}"];',
         ''
     ]
     
@@ -138,14 +203,14 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
         # Different styling for chapter headings
         if node.is_chapter_heading:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#2c3e50", fontcolor=white, penwidth=3, fontsize=14, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=14, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#2c3e50", fontcolor=white, penwidth=3, fontsize=14];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=14];')
         else:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#34495e", fontcolor=white, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#34495e", fontcolor=white];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color};')
     
     dot_lines.append('')
     
@@ -253,13 +318,34 @@ def main():
         st.stop()
     
     notion_client = get_notion_client()
-    entries = get_database_entries(notion_client, database_id, "Prologue")
+    
+    # Get available chapters and create navigation
+    available_chapters = get_all_chapters(notion_client, database_id)
+    
+    if not available_chapters:
+        st.error("No chapters found in database.")
+        st.stop()
+    
+    # Chapter navigation in sidebar
+    with st.sidebar:
+        st.header("📖 Timeline Navigation")
+        selected_chapter = st.selectbox(
+            "Select Chapter:",
+            available_chapters,
+            index=0 if "Prologue" in available_chapters else 0
+        )
+        
+        # Display current selection
+        st.info(f"Currently viewing: **{selected_chapter}**")
+    
+    # Get entries for selected chapter
+    entries = get_database_entries(notion_client, database_id, selected_chapter)
     
     if entries:
         nodes = parse_entries_to_nodes(entries)
         display_interactive_flowchart(nodes)
     else:
-        st.warning("No events found with Chapter = 'Prologue'")
+        st.warning(f"No events found for {selected_chapter}")
 
 if __name__ == "__main__":
     main()
