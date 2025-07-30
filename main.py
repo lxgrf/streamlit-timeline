@@ -254,17 +254,38 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
     # Clean the chapter name to only include valid DOT identifier characters
     clean_chapter_name = ''.join(c if c.isalnum() else '_' for c in chapter_name) if chapter_name else "timeline"
     graph_name = f"timeline_{clean_chapter_name}"
-    dot_lines = [
-        f'digraph {graph_name} {{',
-        '    rankdir=TB;',
-        '    node [shape=box, style=filled, fontname="Helvetica", fontsize=11];',
-        '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
-        f'    edge [color="{edge_color}"];',
-        f'    label="{chapter_name}";',
-        f'    labelloc="t";',
-        f'    labelfontsize=14;',
-        ''
-    ]
+    
+    # Detect simple graphs (few nodes) and apply size constraints
+    node_count = len(nodes)
+    is_simple_graph = node_count <= 5
+    is_aside = chapter_name.startswith("Aside")
+    
+    if is_simple_graph or is_aside:
+        # For simple graphs or asides, use size constraints to prevent over-zooming
+        dot_lines = [
+            f'digraph {graph_name} {{',
+            '    rankdir=TB;',
+            '    node [shape=box, style=filled, fontname="Helvetica", fontsize=12, width=3, height=1.2];',
+            '    graph [bgcolor=transparent, nodesep=0.5, ranksep=0.8, size="10,8!", ratio=fill];',
+            f'    edge [color="{edge_color}"];',
+            f'    label="{chapter_name}";',
+            f'    labelloc="t";',
+            f'    labelfontsize=16;',
+            ''
+        ]
+    else:
+        # For complex graphs, use auto-sizing
+        dot_lines = [
+            f'digraph {graph_name} {{',
+            '    rankdir=TB;',
+            '    node [shape=box, style=filled, fontname="Helvetica", fontsize=11];',
+            '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
+            f'    edge [color="{edge_color}"];',
+            f'    label="{chapter_name}";',
+            f'    labelloc="t";',
+            f'    labelfontsize=14;',
+            ''
+        ]
     
     # Add nodes with proper styling and clickable URLs
     for notion_id, node in nodes.items():
@@ -281,17 +302,20 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
                      .replace('\t', ' ')     # Replace tabs with spaces
                      )
         
-        # Different styling for chapter headings
+        # Different styling for chapter headings - adjust font size based on graph complexity
+        base_font_size = 12 if (is_simple_graph or is_aside) else 11
+        heading_font_size = base_font_size + 2
+        
         if node.is_chapter_heading:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=13, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize=13];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}];')
         else:
             if node.url:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, href="{node.url}", target="_blank"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node.url}", target="_blank"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}];')
     
     dot_lines.append('')
     
