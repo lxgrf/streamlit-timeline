@@ -285,15 +285,23 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
         ]
     
     # Helper function to find matching aside chapter for a node title
-    def find_aside_for_title(node_title, current_chapter, aside_mapping):
+    def find_aside_for_title(node_title, current_chapter, aside_mapping, all_entries):
         if not aside_mapping or current_chapter not in aside_mapping:
             return None
         
         # Check each aside mapped to this chapter
         for aside_chapter in aside_mapping[current_chapter]:
-            # This is a simplified check - in a real implementation you might want
-            # to verify the aside actually has a chapter heading with this title
-            return aside_chapter
+            # Get entries from the aside chapter and check for matching chapter heading
+            aside_entries = get_database_entries(all_entries, aside_chapter)
+            for entry in aside_entries:
+                properties = entry.get("properties", {})
+                entry_title = extract_property_value(properties, "Name") or extract_property_value(properties, "Title")
+                is_chapter_heading = extract_property_value(properties, "Chapter Heading")
+                
+                # If this entry is a chapter heading and matches our node title
+                if is_chapter_heading and entry_title == node_title:
+                    return aside_chapter
+        
         return None
     
     # Add nodes with proper styling and clickable URLs
@@ -306,10 +314,13 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
         safe_title = (wrapped_title
                      .replace('\\', '\\\\')  # Escape backslashes first
                      .replace('"', '\\"')    # Escape quotes
-                     .replace('\n', '\\n')   # Escape newlines
+                     .replace('\n', '\\n')   # Escape newlines for DOT format
                      .replace('\r', '')      # Remove carriage returns
                      .replace('\t', ' ')     # Replace tabs with spaces
                      )
+        
+        # Create a clean tooltip without escaped newlines
+        tooltip_title = wrapped_title.replace('\n', ' ')  # Replace newlines with spaces for tooltip
         
         # Check if this is an aside outlink node by looking at the original entry
         node_url = node.url
@@ -324,10 +335,11 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
                     aside_heading = extract_property_value(properties, "Aside Heading")
                     if aside_heading and node.url:  # Has aside heading checkbox AND a URL
                         is_aside_outlink = True
-                        # Find the matching aside chapter and replace the URL
-                        for aside_chapter in aside_mapping[chapter_name]:
+                        # Find the correct matching aside chapter based on the node title
+                        matching_aside = find_aside_for_title(node.title, chapter_name, aside_mapping, all_entries)
+                        if matching_aside:
                             # Create internal Streamlit URL
-                            node_url = f"?chapter={aside_chapter.replace(' ', '%20')}"
+                            node_url = f"?chapter={matching_aside.replace(' ', '%20')}"
                         break
         
         # Different styling for chapter headings - adjust font size based on graph complexity
@@ -341,15 +353,15 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
         if node.is_chapter_heading:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node_url}", target="{target}"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, tooltip="{tooltip_title}"];')
         else:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, tooltip="{tooltip_title}"];')
     
     dot_lines.append('')
     
