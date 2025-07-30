@@ -11,5 +11,5 @@ dependencies = [
     "streamlit>=1.47.1",
     "tqdm>=4.67.1",
     "streamlit-elements>=0.1.0",
-    "streamlit-mermaid>=0.3.0",
+    "graphviz>=0.21",
 ]

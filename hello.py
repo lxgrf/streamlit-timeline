@@ -6,6 +6,8 @@ from rich.console import Console
 from rich.panel import Panel
 import json
 from typing import Dict, List, Set, Optional
+import graphviz
+import textwrap
 
 # Load environment variables
 load_dotenv()
@@ -109,198 +111,94 @@ def parse_entries_to_nodes(entries: List) -> Dict[str, EventNode]:
     
     return nodes
 
-def build_flowchart_order(nodes: Dict[str, EventNode]) -> List[str]:
-    """Determine the correct order for the flowchart"""
-    # Find starting nodes (nodes with no prior events)
-    starting_nodes = [node_id for node_id, node in nodes.items() if not node.prior_events]
+def create_graphviz_flowchart(nodes: Dict[str, EventNode]) -> str:
+    """Generate a Graphviz DOT string for use with st.graphviz_chart()."""
     
-    if not starting_nodes:
-        # If no clear starting point, just return all nodes
-        return list(nodes.keys())
+    # Create a mapping from notion_id to simple node IDs for DOT
+    notion_id_to_dot_id = {node_id: f"node_{i}" for i, node_id in enumerate(nodes.keys())}
     
-    # Build order using topological sort approach
-    visited = set()
-    order = []
+    # Build DOT string manually
+    dot_lines = [
+        'digraph {',
+        '    rankdir=TB;',
+        '    node [shape=box, style=filled, fontname="Helvetica", fontsize=12];',
+        '    graph [bgcolor=transparent];',
+        ''
+    ]
     
-    def visit_node(node_id: str):
-        if node_id in visited or node_id not in nodes:
-            return
+    # Add nodes with proper styling and clickable URLs
+    for notion_id, node in nodes.items():
+        dot_id = notion_id_to_dot_id[notion_id]
         
-        visited.add(node_id)
-        order.append(node_id)
+        # Wrap long titles for better readability
+        wrapped_title = textwrap.fill(node.title, width=30)
+        # Escape quotes and backslashes for DOT format
+        safe_title = wrapped_title.replace('"', '\\"').replace('\\', '\\\\')
         
-        # Visit next events
-        for next_id in nodes[node_id].next_events:
-            if next_id not in visited:
-                visit_node(next_id)
-    
-    # Start from each starting node
-    for start_id in starting_nodes:
-        visit_node(start_id)
-    
-    # Add any remaining nodes that weren't connected
-    for node_id in nodes:
-        if node_id not in visited:
-            order.append(node_id)
-    
-    return order
-
-def create_mermaid_flowchart(nodes: Dict[str, EventNode], order: List[str]) -> str:
-    """Generate Mermaid flowchart syntax"""
-    
-    mermaid_lines = ["flowchart TD"]
-    
-    # Create node definitions
-    for i, node_id in enumerate(order):
-        if node_id not in nodes:
-            continue
-            
-        node = nodes[node_id]
-        safe_id = f"node_{i}"
-        
-        # Style based on whether it's a chapter heading
+        # Different styling for chapter headings
         if node.is_chapter_heading:
-            # Chapter headings get a special style (hexagon shape)
-            mermaid_lines.append(f'    {safe_id}{{{{{node.title}}}}}')
-            mermaid_lines.append(f'    style {safe_id} fill:#e1f5fe,stroke:#01579b,stroke-width:3px')
+            if node.url:
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#1976d2", fontcolor=white, penwidth=3, fontsize=14, href="{node.url}", target="_blank"];')
+            else:
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#1976d2", fontcolor=white, penwidth=3, fontsize=14];')
         else:
-            # Regular events (rectangular shape)
-            mermaid_lines.append(f'    {safe_id}["{node.title}"]')
-            mermaid_lines.append(f'    style {safe_id} fill:#f3e5f5,stroke:#4a148c,stroke-width:2px')
+            if node.url:
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#4a148c", fontcolor=white, href="{node.url}", target="_blank"];')
+            else:
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#4a148c", fontcolor=white];')
     
-    # Create connections
-    node_id_to_safe = {node_id: f"node_{i}" for i, node_id in enumerate(order)}
+    dot_lines.append('')
     
-    for i, node_id in enumerate(order):
-        if node_id not in nodes:
-            continue
-            
-        node = nodes[node_id]
-        safe_id = f"node_{i}"
-        
-        # Connect to next events
-        for next_id in node.next_events:
-            if next_id in node_id_to_safe:
-                next_safe_id = node_id_to_safe[next_id]
-                mermaid_lines.append(f'    {safe_id} --> {next_safe_id}')
+    # Add edges based on next_events relationships
+    for notion_id, node in nodes.items():
+        source_dot_id = notion_id_to_dot_id[notion_id]
+        for next_notion_id in node.next_events:
+            if next_notion_id in notion_id_to_dot_id:
+                target_dot_id = notion_id_to_dot_id[next_notion_id]
+                dot_lines.append(f'    {source_dot_id} -> {target_dot_id};')
     
-    return "\n".join(mermaid_lines)
+    dot_lines.append('}')
+    
+    return '\n'.join(dot_lines)
 
-def display_interactive_flowchart(nodes: Dict[str, EventNode], order: List[str]):
-    """Display the flowchart with interactive features"""
+def display_interactive_flowchart(nodes: Dict[str, EventNode]):
+    """Renders a Graphviz flowchart with clickable nodes using st.graphviz_chart()."""
     
-    st.subheader("📊 Event Flowchart")
+    st.subheader("📊 Event Timeline")
+    st.info("💡 Click any node in the diagram to open its URL in a new tab.")
     
-    # Generate and display Mermaid flowchart
-    mermaid_code = create_mermaid_flowchart(nodes, order)
-    
+    if not nodes:
+        st.warning("No events found for this chapter to create a flowchart.")
+        return
+        
     try:
-        # Display the Mermaid diagram
-        st.write("**Visual Flowchart:**")
+        # Generate the DOT string for Graphviz
+        dot_source = create_graphviz_flowchart(nodes)
         
-        # Try to render the actual Mermaid diagram
-        try:
-            from antml_tools import create_mermaid_diagram
-            # This would be the ideal way, but we'll show both approaches
-            pass
-        except:
-            pass
+        # Display using Streamlit's native graphviz_chart
+        st.graphviz_chart(dot_source, use_container_width=True)
         
-        # Show the mermaid code in an expander for debugging
-        with st.expander("View Mermaid Code", expanded=False):
-            st.code(mermaid_code, language="mermaid")
-            st.info("💡 You can copy this code and paste it into mermaid.live to see the visual diagram")
-        
-        # Show a structured text representation
-        st.write("**Flowchart Structure:**")
-        for i, node_id in enumerate(order):
-            if node_id not in nodes:
-                continue
-                
-            node = nodes[node_id]
-            
-            # Display the node with proper styling
-            if node.is_chapter_heading:
-                st.markdown(f"### 🏛️ **{node.title}** (Chapter Heading)")
-            else:
-                st.markdown(f"#### 📅 {node.title}")
-            
-            # Show connections
-            if node.next_events:
-                next_titles = []
-                for next_id in node.next_events:
-                    if next_id in nodes:
-                        next_titles.append(nodes[next_id].title)
-                if next_titles:
-                    st.write(f"   ↓ *Next:* {', '.join(next_titles)}")
-            
-            if node.url:
-                st.markdown(f"   🔗 [Open Link]({node.url})")
-            
-            st.write("---")
-        
-        # Display clickable event list
-        st.subheader("🔗 Interactive Event List")
-        st.write("Click on any event below to open its URL:")
-        
-        # Create columns for better layout
-        col1, col2 = st.columns(2)
-        
-        for i, node_id in enumerate(order):
-            if node_id not in nodes:
-                continue
-                
-            node = nodes[node_id]
-            col = col1 if i % 2 == 0 else col2
-            
-            with col:
-                # Style the button based on chapter heading
-                if node.is_chapter_heading:
-                    button_style = "🏛️"  # Special icon for chapter headings
-                else:
-                    button_style = "📅"
-                
-                # Create button with URL functionality
-                if node.url:
-                    try:
-                        # Use st.link_button for better UX (Streamlit 1.26+)
-                        st.link_button(
-                            f"{button_style} {node.title}",
-                            node.url,
-                            help=f"Open {node.title} in new tab"
-                        )
-                    except AttributeError:
-                        # Fallback for older Streamlit versions
-                        st.markdown(f"[{button_style} {node.title}]({node.url})")
-                else:
-                    st.write(f"{button_style} {node.title} (No URL available)")
-        
+        st.markdown("---")
+        st.info("🎯 **Legend:** Blue nodes are chapter headings, purple nodes are regular events. All nodes with URLs are clickable and open in new tabs.")
+
     except Exception as e:
-        st.error(f"Error creating flowchart: {str(e)}")
-        st.write("Falling back to simple list view...")
+        st.error(f"An error occurred while rendering the flowchart: {e}")
+        st.warning("Falling back to a simple list display.")
         
-        # Simple fallback display
-        for node_id in order:
-            if node_id not in nodes:
-                continue
-            node = nodes[node_id]
-            
-            if node.is_chapter_heading:
-                st.markdown(f"### 🏛️ {node.title}")
-            else:
-                st.markdown(f"- 📅 {node.title}")
-            
+        for node in nodes.values():
+            icon = "🏛️" if node.is_chapter_heading else "📅"
             if node.url:
-                st.markdown(f"  [🔗 Open Link]({node.url})")
+                st.markdown(f"*   {icon} [{node.title}]({node.url})")
+            else:
+                st.markdown(f"*   {icon} {node.title} (No URL)")
+
 
 def display_entry(entry):
     """Display a single database entry in a readable format"""
     
-    # Extract the title (assuming there's a title property)
     title = "Untitled"
     properties = entry.get("properties", {})
     
-    # Look for common title properties
     for prop_name, prop_data in properties.items():
         if prop_name.lower() in ["title", "name", "event"] and prop_data.get("type") == "title":
             title_content = prop_data.get("title", [])
@@ -308,11 +206,9 @@ def display_entry(entry):
                 title = title_content[0].get("plain_text", "Untitled")
             break
     
-    # Create a display card for each entry
     with st.expander(f"📅 {title}"):
         st.json(properties, expanded=False)
         
-        # Show some key properties in a more readable format
         if properties:
             st.write("**Properties:**")
             for prop_name, prop_data in properties.items():
@@ -361,7 +257,6 @@ def main():
     st.title("📅 Timeline from Notion")
     st.write("Retrieving events from Notion database, filtered by Chapter = 'Prologue'")
     
-    # Get environment variables
     database_id = os.getenv("TIMELINE_DATABASE_ID")
     
     if not database_id:
@@ -369,16 +264,13 @@ def main():
         st.info("Make sure to set both NOTION_KEY and TIMELINE_DATABASE_ID in your .env file")
         st.stop()
     
-    # Display current configuration
     st.sidebar.header("Configuration")
     st.sidebar.write(f"**Database ID:** `{database_id[:10]}...`")
     st.sidebar.write("**Chapter Filter:** Prologue")
     
-    # Get Notion client
     with st.spinner("Connecting to Notion..."):
         notion_client = get_notion_client()
     
-    # Show database schema for debugging
     with st.expander("🔍 Database Schema (for debugging)", expanded=False):
         schema = get_database_schema(notion_client, database_id)
         if schema:
@@ -387,7 +279,6 @@ def main():
                 prop_type = prop_info.get("type", "unknown")
                 st.write(f"- **{prop_name}:** `{prop_type}`")
                 
-                # Show select options if it's a select property
                 if prop_type == "select" and "select" in prop_info:
                     options = prop_info["select"].get("options", [])
                     if options:
@@ -396,31 +287,17 @@ def main():
         else:
             st.write("Could not retrieve schema")
     
-    # Retrieve database entries
     with st.spinner("Retrieving database entries..."):
         entries = get_database_entries(notion_client, database_id, "Prologue")
     
-    # Display results
     if entries:
         st.success(f"Found {len(entries)} entries with Chapter = 'Prologue'")
         
-        # Parse entries into nodes and create flowchart
         with st.spinner("Building flowchart..."):
             nodes = parse_entries_to_nodes(entries)
-            flow_order = build_flowchart_order(nodes)
         
-        # Display the interactive flowchart
-        display_interactive_flowchart(nodes, flow_order)
+        display_interactive_flowchart(nodes)
         
-        # Also create and display the actual Mermaid diagram
-        st.subheader("🎨 Visual Mermaid Diagram")
-        mermaid_code = create_mermaid_flowchart(nodes, flow_order)
-        
-        # Use create_diagram tool to render the actual Mermaid diagram
-        st.write("Here's the interactive visual flowchart:")
-        # We'll show this after we create it with the create_diagram tool
-        
-        # Show detailed entries in an expandable section
         with st.expander("📋 Detailed Entry Information", expanded=False):
             st.write("Raw entry data for debugging:")
             for i, entry in enumerate(entries):
@@ -429,19 +306,17 @@ def main():
         st.warning("No entries found with Chapter = 'Prologue'")
         st.info("Let's try to debug this:")
         
-        # Try to get a few entries without filter to see what's available
         with st.spinner("Checking what entries exist in the database..."):
             try:
                 response = notion_client.databases.query(
                     database_id=database_id,
-                    page_size=5  # Just get a few to examine
+                    page_size=5
                 )
                 all_entries = response.get("results", [])
                 
                 if all_entries:
                     st.write(f"Found {len(all_entries)} entries in database (showing first 5):")
                     
-                    # Show Chapter values from existing entries
                     chapter_values = set()
                     for entry in all_entries:
                         chapter_prop = entry.get("properties", {}).get("Chapter", {})
@@ -455,7 +330,6 @@ def main():
                     else:
                         st.write("No Chapter values found in sample entries")
                         
-                    # Show a sample entry structure
                     with st.expander("Sample entry structure"):
                         st.json(all_entries[0], expanded=False)
                 else:
