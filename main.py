@@ -80,6 +80,74 @@ def get_all_chapters(all_entries):
     
     return filtered_chapters
 
+def get_aside_chapters(all_entries):
+    """Get all Aside chapters from cached entries"""
+    aside_chapters = set()
+    for entry in all_entries:
+        chapter_prop = entry.get("properties", {}).get("Chapter", {})
+        if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
+            chapter_value = chapter_prop["select"].get("name", "")
+            if chapter_value and chapter_value.startswith("Aside"):
+                aside_chapters.add(chapter_value)
+    
+    return sorted(list(aside_chapters))
+
+def find_aside_outlink_titles(all_entries, main_chapter):
+    """Find titles of nodes marked as 'Aside Heading' in a main chapter (these are outlinks to asides)"""
+    main_entries = get_database_entries(all_entries, main_chapter)
+    
+    outlink_titles = []
+    for entry in main_entries:
+        properties = entry.get("properties", {})
+        aside_heading = extract_property_value(properties, "Aside Heading")
+        if aside_heading:  # If checkbox is true
+            # Get the title of this node
+            title = extract_property_value(properties, "Name") or extract_property_value(properties, "Title") or "Untitled"
+            outlink_titles.append(title)
+    
+    return outlink_titles
+
+def find_aside_chapter_headings(all_entries, aside_chapter):
+    """Find titles of nodes marked as 'Chapter Heading' in an aside chapter"""
+    aside_entries = get_database_entries(all_entries, aside_chapter)
+    
+    heading_titles = []
+    for entry in aside_entries:
+        properties = entry.get("properties", {})
+        chapter_heading = extract_property_value(properties, "Chapter Heading")
+        if chapter_heading:  # If checkbox is true
+            # Get the title of this node
+            title = extract_property_value(properties, "Name") or extract_property_value(properties, "Title") or "Untitled"
+            heading_titles.append(title)
+    
+    return heading_titles
+
+def match_asides_to_chapters(all_entries, main_chapters, aside_chapters):
+    """Match Aside chapters to main chapters by finding matching outlink/heading titles"""
+    chapter_aside_mapping = {}
+    
+    for main_chapter in main_chapters:
+        if main_chapter == "Prologue":
+            continue  # Skip prologue for aside matching
+        
+        # Get outlink titles from main chapter (nodes with Aside Heading = true)
+        outlink_titles = find_aside_outlink_titles(all_entries, main_chapter)
+        
+        if not outlink_titles:
+            continue  # No outlinks in this chapter
+        
+        # Check each aside chapter for matching chapter headings
+        for aside_chapter in aside_chapters:
+            aside_heading_titles = find_aside_chapter_headings(all_entries, aside_chapter)
+            
+            # If any outlink title matches an aside chapter heading
+            if any(outlink_title in aside_heading_titles for outlink_title in outlink_titles):
+                if main_chapter not in chapter_aside_mapping:
+                    chapter_aside_mapping[main_chapter] = []
+                chapter_aside_mapping[main_chapter].append(aside_chapter)
+    
+    return chapter_aside_mapping
+
 def get_database_entries(all_entries, chapter_filter="Prologue"):
     """Filter cached entries by chapter"""
     filtered_entries = []
@@ -341,21 +409,42 @@ def main():
         st.error("No entries found in database.")
         st.stop()
     
-    # Get available chapters from cached data
+    # Get available chapters and asides from cached data
     available_chapters = get_all_chapters(all_entries)
+    aside_chapters = get_aside_chapters(all_entries)
     
     if not available_chapters:
         st.error("No chapters found in database.")
         st.stop()
     
+    # Match asides to main chapters
+    chapter_aside_mapping = match_asides_to_chapters(all_entries, available_chapters, aside_chapters)
+    
+    # Create hierarchical chapter list for dropdown
+    chapter_options = []
+    chapter_display_names = []
+    
+    for main_chapter in available_chapters:
+        # Add main chapter
+        chapter_options.append(main_chapter)
+        chapter_display_names.append(main_chapter)
+        
+        # Add any related aside chapters (indented)
+        if main_chapter in chapter_aside_mapping:
+            for aside_chapter in sorted(chapter_aside_mapping[main_chapter]):
+                chapter_options.append(aside_chapter)
+                chapter_display_names.append(f"    ↳ {aside_chapter}")
+    
     # Chapter navigation in top bar
     col1, col2 = st.columns([3, 1])
     with col1:
-        selected_chapter = st.selectbox(
+        selected_index = st.selectbox(
             "📖 Select Chapter:",
-            available_chapters,
+            range(len(chapter_options)),
+            format_func=lambda i: chapter_display_names[i],
             index=0  # Prologue is now first in the list
         )
+        selected_chapter = chapter_options[selected_index]
     with col2:
         st.write("")  # Empty space for alignment
     
