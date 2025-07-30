@@ -3,10 +3,7 @@ import os
 from notion_client import Client
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.panel import Panel
-import json
-from typing import Dict, List, Set, Optional
-import graphviz
+from typing import Dict, List
 import textwrap
 
 # Load environment variables
