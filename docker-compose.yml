@@ -1,0 +1,21 @@
+services:
+  app:
+    image: ghcr.io/lxgrf/streamlit-timeline:latest
+    container_name: streamlit-timeline
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "8501:8501"
+    # Mount the .env next to this compose file into /app, where load_dotenv() will read it
+    volumes:
+      - ./.env:/app/.env:ro
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Optional: auto-update when a new image is pushed to GHCR
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 300
