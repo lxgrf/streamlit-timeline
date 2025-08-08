@@ -5,12 +5,14 @@ from dotenv import load_dotenv
 from rich.console import Console
 from typing import Dict, List
 import textwrap
+from collections import defaultdict
 
 # Load environment variables
 load_dotenv()
 
 console = Console()
 
+@st.cache_resource
 def get_notion_client():
     """Initialise Notion client with API key from environment"""
     notion_key = os.getenv("NOTION_KEY")
@@ -53,6 +55,18 @@ def get_all_database_entries(_notion_client, database_id):
     except Exception as e:
         st.error(f"Error retrieving database: {str(e)}")
         return []
+
+@st.cache_data(ttl=300)
+def group_entries_by_chapter(all_entries):
+    from collections import defaultdict
+    by_chapter = defaultdict(list)
+    for entry in all_entries:
+        chapter_prop = entry.get("properties", {}).get("Chapter", {})
+        if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
+            name = chapter_prop["select"].get("name", "")
+            if name:
+                by_chapter[name].append(entry)
+    return dict(by_chapter)
 
 def get_all_chapters(all_entries):
     """Get all unique chapter values from cached entries"""
@@ -119,43 +133,26 @@ def find_aside_chapter_headings(all_entries, aside_chapter):
     
     return heading_titles
 
+@st.cache_data(ttl=300)
 def match_asides_to_chapters(all_entries, main_chapters, aside_chapters):
     """Match Aside chapters to main chapters by finding matching outlink/heading titles"""
     chapter_aside_mapping = {}
-    
     for main_chapter in main_chapters:
         if main_chapter == "Prologue":
-            continue  # Skip prologue for aside matching
-        
-        # Get outlink titles from main chapter (nodes with Aside Heading = true)
+            continue
         outlink_titles = find_aside_outlink_titles(all_entries, main_chapter)
-        
         if not outlink_titles:
-            continue  # No outlinks in this chapter
-        
-        # Check each aside chapter for matching chapter headings
+            continue
         for aside_chapter in aside_chapters:
             aside_heading_titles = find_aside_chapter_headings(all_entries, aside_chapter)
-            
-            # If any outlink title matches an aside chapter heading
             if any(outlink_title in aside_heading_titles for outlink_title in outlink_titles):
-                if main_chapter not in chapter_aside_mapping:
-                    chapter_aside_mapping[main_chapter] = []
-                chapter_aside_mapping[main_chapter].append(aside_chapter)
-    
+                chapter_aside_mapping.setdefault(main_chapter, []).append(aside_chapter)
     return chapter_aside_mapping
 
 def get_database_entries(all_entries, chapter_filter="Prologue"):
-    """Filter cached entries by chapter"""
-    filtered_entries = []
-    for entry in all_entries:
-        chapter_prop = entry.get("properties", {}).get("Chapter", {})
-        if chapter_prop.get("type") == "select" and chapter_prop.get("select"):
-            chapter_value = chapter_prop["select"].get("name", "")
-            if chapter_value == chapter_filter:
-                filtered_entries.append(entry)
-    
-    return filtered_entries
+    """Filter cached entries by chapter (O(1) lookup using cached index)"""
+    entries_by_chapter = group_entries_by_chapter(all_entries)
+    return entries_by_chapter.get(chapter_filter, [])
 
 class EventNode:
     """Represents an event node in the flowchart"""
@@ -215,6 +212,10 @@ def parse_entries_to_nodes(entries: List) -> Dict[str, EventNode]:
         nodes[notion_id] = node
     
     return nodes
+
+@st.cache_data(ttl=300)
+def parse_entries_to_nodes_cached(entries: List) -> Dict[str, EventNode]:
+    return parse_entries_to_nodes(entries)
 
 def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "", aside_mapping: Dict[str, List[str]] = None, all_entries = None) -> str:
     """Generate a Graphviz DOT string for use with st.graphviz_chart()."""
@@ -284,24 +285,23 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
             ''
         ]
     
-    # Helper function to find matching aside chapter for a node title
-    def find_aside_for_title(node_title, current_chapter, aside_mapping, all_entries):
-        if not aside_mapping or current_chapter not in aside_mapping:
-            return None
-        
-        # Check each aside mapped to this chapter
-        for aside_chapter in aside_mapping[current_chapter]:
-            # Get entries from the aside chapter and check for matching chapter heading
-            aside_entries = get_database_entries(all_entries, aside_chapter)
-            for entry in aside_entries:
-                properties = entry.get("properties", {})
-                entry_title = extract_property_value(properties, "Name") or extract_property_value(properties, "Title")
-                is_chapter_heading = extract_property_value(properties, "Chapter Heading")
-                
-                # If this entry is a chapter heading and matches our node title
-                if is_chapter_heading and entry_title == node_title:
-                    return aside_chapter
-        
+    # Precompute current chapter entries once and map id -> properties
+    current_chapter_entries = []
+    entry_props_by_id = {}
+    aside_heading_titles_by_aside = {}
+    
+    if all_entries and aside_mapping and chapter_name in aside_mapping:
+        current_chapter_entries = get_database_entries(all_entries, chapter_name)
+        entry_props_by_id = {e.get("id", ""): e.get("properties", {}) for e in current_chapter_entries}
+        aside_heading_titles_by_aside = {
+            aside: set(find_aside_chapter_headings(all_entries, aside))
+            for aside in aside_mapping.get(chapter_name, [])
+        }
+    
+    def find_aside_for_title(node_title):
+        for aside, titles in aside_heading_titles_by_aside.items():
+            if node_title in titles:
+                return aside
         return None
     
     # Add nodes with proper styling and clickable URLs
@@ -326,21 +326,15 @@ def create_graphviz_flowchart(nodes: Dict[str, EventNode], chapter_name: str = "
         node_url = node.url
         is_aside_outlink = False
         
-        if all_entries and aside_mapping and chapter_name in aside_mapping:
-            # Find the original entry for this node to check the "Aside Heading" property
-            current_chapter_entries = get_database_entries(all_entries, chapter_name)
-            for entry in current_chapter_entries:
-                if entry.get("id") == notion_id:
-                    properties = entry.get("properties", {})
-                    aside_heading = extract_property_value(properties, "Aside Heading")
-                    if aside_heading and node.url:  # Has aside heading checkbox AND a URL
-                        is_aside_outlink = True
-                        # Find the correct matching aside chapter based on the node title
-                        matching_aside = find_aside_for_title(node.title, chapter_name, aside_mapping, all_entries)
-                        if matching_aside:
-                            # Create internal Streamlit URL
-                            node_url = f"?chapter={matching_aside.replace(' ', '%20')}"
-                        break
+        if entry_props_by_id:
+            props = entry_props_by_id.get(notion_id)
+            if props:
+                aside_heading = extract_property_value(props, "Aside Heading")
+                if aside_heading and node.url:
+                    is_aside_outlink = True
+                    matching_aside = find_aside_for_title(node.title)
+                    if matching_aside:
+                        node_url = f"?chapter={matching_aside.replace(' ', '%20')}"
         
         # Different styling for chapter headings - adjust font size based on graph complexity
         base_font_size = 12 if (is_simple_graph or is_aside) else 11
@@ -536,13 +530,16 @@ def main():
         )
         selected_chapter = chapter_options[selected_index]
     with col2:
-        st.write("")  # Empty space for alignment
+        if st.button("🔄 Refresh data", help="Clear cache and fetch fresh data", use_container_width=True):
+            st.cache_data.clear()
+            st.toast("Cache cleared. Fetching latest data…")
+            st.rerun()
     
     # Get entries for selected chapter from cached data
     entries = get_database_entries(all_entries, selected_chapter)
     
     if entries:
-        nodes = parse_entries_to_nodes(entries)
+        nodes = parse_entries_to_nodes_cached(entries)
         display_interactive_flowchart(nodes, selected_chapter, chapter_aside_mapping, all_entries)
     else:
         st.warning(f"No events found for {selected_chapter}")
