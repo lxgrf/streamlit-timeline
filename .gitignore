@@ -1,3 +1,4 @@
 .env
 .github/.DS_Store
 .venv/
+.timeline_model_snapshot.json

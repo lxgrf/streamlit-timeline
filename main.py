@@ -1,5 +1,7 @@
 import streamlit as st
 import os
+import json
+from datetime import datetime, timezone
 from notion_client import Client
 from dotenv import load_dotenv
 from typing import Dict, List
@@ -102,13 +104,8 @@ def parse_entries_to_nodes(entries: List) -> Dict[str, EventNode]:
     
     return nodes
 
-@st.cache_data(ttl=900)
-def build_timeline_model(database_id: str):
-    """Fetch Notion once and precompute all derived structures."""
-    notion_client = get_notion_client()
-
-    # Fetch all entries once (reliable path)
-    all_entries = get_all_database_entries(notion_client, database_id)
+def build_model_from_entries(all_entries: List[Dict]):
+    """Build the in-memory timeline model from a list of Notion entries."""
 
     # Group entries by chapter
     entries_by_chapter = {}
@@ -182,6 +179,69 @@ def build_timeline_model(database_id: str):
         "headings_by_aside": headings_by_aside,
         "entry_count": len(all_entries),
     }
+
+
+def _get_cache_path() -> str:
+    """Return the file path used for the local snapshot cache."""
+    return os.getenv("TIMELINE_CACHE_PATH", ".timeline_model_snapshot.json")
+
+
+def load_snapshot_from_disk(database_id: str) -> List[Dict] | None:
+    """Load cached snapshot of Notion entries from disk if available and matching database_id."""
+    cache_path = _get_cache_path()
+    try:
+        if not os.path.exists(cache_path):
+            return None
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        if data.get("database_id") != database_id:
+            return None
+        entries = data.get("all_entries")
+        if isinstance(entries, list):
+            return entries
+        return None
+    except Exception:
+        return None
+
+
+def save_snapshot_to_disk(database_id: str, all_entries: List[Dict]) -> None:
+    """Persist Notion entries snapshot to disk for reuse across sessions."""
+    cache_path = _get_cache_path()
+    try:
+        payload = {
+            "database_id": database_id,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "all_entries": all_entries,
+            "schema_version": 1,
+        }
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, separators=(",", ":"))
+    except Exception:
+        # Silently ignore disk caching errors to avoid breaking the app
+        pass
+
+
+@st.cache_data(ttl=None)
+def build_timeline_model(database_id: str, force_refresh: bool = False):
+    """Load timeline model from a local snapshot, or fetch from Notion when forced or missing.
+
+    - When force_refresh is False, prefer disk snapshot to avoid network calls.
+    - When force_refresh is True, always poll Notion, then update the disk snapshot.
+    """
+    entries: List[Dict] | None = None
+
+    if not force_refresh:
+        entries = load_snapshot_from_disk(database_id)
+
+    if entries is None:
+        notion_client = get_notion_client()
+        entries = get_all_database_entries(notion_client, database_id)
+        # Persist to disk for subsequent sessions
+        save_snapshot_to_disk(database_id, entries)
+
+    return build_model_from_entries(entries)
 
 def create_graphviz_flowchart(
     nodes: Dict[str, EventNode],
@@ -366,9 +426,21 @@ def main():
         st.error("TIMELINE_DATABASE_ID not found in environment variables.")
         st.stop()
 
+    # Top-level refresh: poll Notion only when pressed; otherwise use local snapshot
+    refresh_clicked = st.button(
+        "🔄 Fetch fresh data",
+        help="Poll Notion now and update the local snapshot (otherwise, load from local cache)",
+        use_container_width=False,
+    )
+
     # Build and cache the full model (single hash and cache entry)
-    with st.spinner("Building timeline model…"):
-        model = build_timeline_model(database_id)
+    with st.spinner("Loading timeline model…"):
+        if refresh_clicked:
+            # Force rebuild: clear memoised cache entry first, to avoid returning stale value
+            st.cache_data.clear()
+            model = build_timeline_model(database_id, force_refresh=True)
+        else:
+            model = build_timeline_model(database_id, force_refresh=False)
 
     available_chapters = model["chapters"]
     aside_chapters = model["aside_chapters"]
@@ -396,20 +468,13 @@ def main():
                 initial_index = i
                 break
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        selected_index = st.selectbox(
-            "📖 Select Chapter:",
-            range(len(chapter_options)),
-            format_func=lambda i: chapter_display_names[i],
-            index=initial_index
-        )
-        selected_chapter = chapter_options[selected_index]
-    with col2:
-        if st.button("🔄 Refresh data", help="Clear cache and fetch fresh data", use_container_width=True):
-            st.cache_data.clear()
-            st.toast("Cache cleared. Fetching latest data…")
-            st.rerun()
+    selected_index = st.selectbox(
+        "📖 Select Chapter:",
+        range(len(chapter_options)),
+        format_func=lambda i: chapter_display_names[i],
+        index=initial_index
+    )
+    selected_chapter = chapter_options[selected_index]
 
     # Pull precomputed entries and nodes
     entries = model["entries_by_chapter"].get(selected_chapter, [])
