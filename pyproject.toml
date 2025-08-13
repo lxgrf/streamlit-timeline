@@ -13,3 +13,13 @@ dependencies = [
     "streamlit-elements>=0.1.0",
     "graphviz>=0.21",
 ]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.uv]
+dev-dependencies = [
+  "pytest>=8.2",
+]
