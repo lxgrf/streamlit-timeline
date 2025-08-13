@@ -286,9 +286,6 @@ def create_graphviz_flowchart(
             '    node [shape=box, style=filled, fontname="Helvetica", fontsize=12, width=3, height=1.2];',
             '    graph [bgcolor=transparent, nodesep=0.5, ranksep=0.8, size="10,8!", ratio=fill];',
             f'    edge [color="{edge_color}"];',
-            f'    label="{chapter_name}";',
-            '    labelloc="t";',
-            '    labelfontsize=16;',
             ''
         ]
     else:
@@ -298,9 +295,6 @@ def create_graphviz_flowchart(
             '    node [shape=box, style=filled, fontname="Helvetica", fontsize=11];',
             '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
             f'    edge [color="{edge_color}"];',
-            f'    label="{chapter_name}";',
-            '    labelloc="t";',
-            '    labelfontsize=14;',
             ''
         ]
 
@@ -394,8 +388,6 @@ def display_interactive_flowchart(
         )
         st.graphviz_chart(dot_source, use_container_width=True)
 
-        if aside_mapping and chapter_name in aside_mapping:
-            st.info(f"🔗 Nodes with link icons connect to: {', '.join(aside_mapping[chapter_name])}")
 
     except Exception as e:
         st.error(f"Error rendering timeline: {e}")
