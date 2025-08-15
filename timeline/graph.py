@@ -28,7 +28,7 @@ def create_graphviz_flowchart(
     else:
         chapter_color = "#ffffff"
         event_color = "#ffffff"
-        edge_color = "#000000"
+        edge_color = "#666666"
         font_color = "black"
 
     clean_chapter_name = ''.join(c if c.isalnum() else '_' for c in chapter_name) if chapter_name else "timeline"
@@ -44,7 +44,7 @@ def create_graphviz_flowchart(
             '    rankdir=TB;',
             '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, width=3, height=1.2];',
             '    graph [bgcolor=transparent, nodesep=0.5, ranksep=0.8, size="10,8!", ratio=fill];',
-            f'    edge [color="{edge_color}"];',
+            f'    edge [color="{edge_color}", penwidth=1, arrowsize=0.6];',
             ''
         ]
     else:
@@ -53,7 +53,7 @@ def create_graphviz_flowchart(
             '    rankdir=TB;',
             '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11];',
             '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
-            f'    edge [color="{edge_color}"];',
+            f'    edge [color="{edge_color}", penwidth=1, arrowsize=0.6];',
             ''
         ]
 
@@ -101,15 +101,15 @@ def create_graphviz_flowchart(
         if node.is_chapter_heading:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="#000000"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, tooltip="{tooltip_title}"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, tooltip="{tooltip_title}", color="#000000"];')
         else:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="{edge_color}"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, tooltip="{tooltip_title}"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, tooltip="{tooltip_title}", color="{edge_color}"];')
 
     dot_lines.append('')
 
@@ -143,7 +143,23 @@ def display_interactive_flowchart(
             current_entries=current_entries,
             aside_heading_titles_by_aside=aside_heading_titles_by_aside,
         )
-        st.graphviz_chart(dot_source, use_container_width=True)
+        
+        # Add CSS for zoom functionality
+        st.markdown("""
+        <style>
+        .graphviz-container {
+            overflow: auto;
+            max-height: 80vh;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Render with zoom support
+        st.graphviz_chart(dot_source, use_container_width=False)
+        
     except Exception as e:
         st.error(f"Error rendering timeline: {e}")
         for node in nodes.values():
