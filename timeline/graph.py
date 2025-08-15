@@ -26,10 +26,10 @@ def create_graphviz_flowchart(
         edge_color = "#ffffff"
         font_color = "black"
     else:
-        chapter_color = "#2c3e50"
-        event_color = "#34495e"
-        edge_color = "#2c3e50"
-        font_color = "white"
+        chapter_color = "#ffffff"
+        event_color = "#ffffff"
+        edge_color = "#000000"
+        font_color = "black"
 
     clean_chapter_name = ''.join(c if c.isalnum() else '_' for c in chapter_name) if chapter_name else "timeline"
     graph_name = f"timeline_{clean_chapter_name}"
@@ -42,7 +42,7 @@ def create_graphviz_flowchart(
         dot_lines = [
             f'digraph {graph_name} {{',
             '    rankdir=TB;',
-            '    node [shape=box, style=filled, fontname="Helvetica", fontsize=12, width=3, height=1.2];',
+            '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, width=3, height=1.2];',
             '    graph [bgcolor=transparent, nodesep=0.5, ranksep=0.8, size="10,8!", ratio=fill];',
             f'    edge [color="{edge_color}"];',
             ''
@@ -51,7 +51,7 @@ def create_graphviz_flowchart(
         dot_lines = [
             f'digraph {graph_name} {{',
             '    rankdir=TB;',
-            '    node [shape=box, style=filled, fontname="Helvetica", fontsize=11];',
+            '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11];',
             '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
             f'    edge [color="{edge_color}"];',
             ''
