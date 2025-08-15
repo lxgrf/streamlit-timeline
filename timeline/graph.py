@@ -42,7 +42,7 @@ def create_graphviz_flowchart(
         dot_lines = [
             f'digraph {graph_name} {{',
             '    rankdir=TB;',
-            '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, width=3, height=1.2];',
+            '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, width=3, height=1.2, margin=0.2];',
             '    graph [bgcolor=transparent, nodesep=0.5, ranksep=0.8, size="10,8!", ratio=fill];',
             f'    edge [color="{edge_color}", penwidth=1, arrowsize=0.6];',
             ''
@@ -51,7 +51,7 @@ def create_graphviz_flowchart(
         dot_lines = [
             f'digraph {graph_name} {{',
             '    rankdir=TB;',
-            '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11];',
+            '    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, margin=0.2];',
             '    graph [bgcolor=transparent, nodesep=0.3, ranksep=0.5, ratio=auto, margin=0.2];',
             f'    edge [color="{edge_color}", penwidth=1, arrowsize=0.6];',
             ''
@@ -101,9 +101,9 @@ def create_graphviz_flowchart(
         if node.is_chapter_heading:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="#000000"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#f5f5f5", fontcolor={font_color}, penwidth=1, fontsize={heading_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="#000000", fontweight="bold"];')
             else:
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{chapter_color}", fontcolor={font_color}, penwidth=3, fontsize={heading_font_size}, tooltip="{tooltip_title}", color="#000000"];')
+                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="#f5f5f5", fontcolor={font_color}, penwidth=1, fontsize={heading_font_size}, tooltip="{tooltip_title}", color="#000000", fontweight="bold"];')
         else:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
