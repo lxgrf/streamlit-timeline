@@ -38,7 +38,7 @@ def create_graphviz_flowchart(
     is_simple_graph = node_count <= 5
     is_aside = chapter_name.startswith("Aside") if chapter_name else False
 
-    if is_simple_graph or is_aside:
+    if is_simple_graph:
         dot_lines = [
             f'digraph {graph_name} {{',
             '    rankdir=TB;',
