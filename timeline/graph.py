@@ -107,7 +107,10 @@ def create_graphviz_flowchart(
         else:
             if node_url:
                 target = "_self" if is_aside_outlink else "_blank"
-                dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="{edge_color}"];')
+                if is_aside_outlink:
+                    dot_lines.append(f'    {dot_id} [label="{safe_title}", shape="folder", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="{edge_color}"];')
+                else:
+                    dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, href="{node_url}", target="{target}", tooltip="{tooltip_title}", color="{edge_color}"];')
             else:
                 dot_lines.append(f'    {dot_id} [label="{safe_title}", fillcolor="{event_color}", fontcolor={font_color}, fontsize={base_font_size}, tooltip="{tooltip_title}", color="{edge_color}"];')
 
